@@ -1,0 +1,747 @@
+<?php
+/*
+ * CONSTANTS BEING USED
+ *
+
+ ROLE:
+ 	tutor, trainer, manager, administrator
+
+ BUNDLE MACHINE NAME :
+ 	t_core, t_individual, t_class
+
+ FIELD NAME :
+ 	field_date, field_course, field_display_name
+
+
+ CSS CLASSES :
+ 	well-lg, well, panel, panel-warning, panel-primary,
+ 	nr-attendance, nr-attendance-unregistrable-reason,
+ 	alert, alert-info, nr-attendance-add-class
+ 	btn, btn-primary, btn-sm, btn-info, btn-danger,
+
+ *
+ * @description: those above will become options on
+ * "admin/structure/node_registration/nr_attendance" setup page in the future.
+ */
+
+//nr_attendance
+require_once __DIR__ . '/includes/nr_attendance.functions.inc';
+require_once __DIR__ . '/includes/nr_attendance.entity.inc';
+require_once __DIR__ . '/includes/nr_attendance.actions.inc';
+
+/**
+ * Implements hook_init().
+ */
+function nr_attendance_init() {
+	// add the module CSS file
+	drupal_add_css(drupal_get_path('module', 'nr_attendance') . '/nr_attendance.css');
+}
+
+/**
+ * Implements hook_menu().
+ * @description: deprecated
+ *
+function nr_attendance_menu() {
+
+  $items['node/%node/nr_attendance/list'] = array(
+    'title' => 'Report Attendance',
+    'access callback' => 'nr_attendance_user_report_access',
+    'access arguments' => array(1),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'tab_parent' => 'node/%/nr_attendance',
+  );
+  $items['node/%node/nr_attendance/report'] = array(
+    'title' => 'Report Session Feedback',
+    'page callback' => 'nr_attendance_report_page',
+    'page arguments' => array(1),
+    'access callback' => 'nr_attendance_user_report_access',
+    'access arguments' => array(1),
+    'file' => 'includes/nr_attendance.forms.inc',
+    'type' => MENU_LOCAL_TASK,
+    'tab_parent' => 'node/%/nr_attendance',
+  );
+
+return $items;
+}
+/**/
+/**
+ * training/tutoring report page access
+ */
+function nr_attendance_user_report_access($node){
+
+	//if(_node_registration_node_type_enabled($node->type)){
+		global $user;
+		if(in_array('tutor', $user->roles) && $node->type == 't_core') return true;
+		if(in_array('trainer', $user->roles) && $node->type == 't_individual') return true;
+		if(in_array('administrator', $user->roles) && ($node->type == 't_core' || $node->type == 't_individual')) return true;
+	//}
+	return false;
+}
+/**
+ * Page callback for reporting the attendance.
+ *
+function nr_attendance_report_page($node, $account = NULL) {
+
+  drupal_set_title(t('Attendance report for @title', array('@title' => $node->title)), PASS_THROUGH);
+
+  return drupal_get_form('nr_attendance_report_form', $node, $account);
+}
+function nr_attendance_report_form($form, &$form_state) {
+
+	$node = $form_state['build_info']['args'][0];
+	$display = array('type' => 'long', 'label' => 'hidden');
+	$date = field_view_field('node', $node, 'field_date', $display);
+
+	$markup = '';
+	$type = $node->type;
+	$nodeAttendance = _get_attendance_by_nid($node->nid, $node->type);
+	$is_new = false;
+	$form['node_information']['#access'] = true;
+	$daterawvalue = field_get_items('node', $node, 'field_date')[0]['value'];
+
+	if(empty($nodeAttendance)){
+
+		$markup = _html_bootstrap_panel('Registered user not found', 'No one registered for this, you do not need to report.', 'panel panel-warning');
+		$reportAccess = false;
+		$reportDisabled = true;
+	}
+	else if($daterawvalue > time()){
+
+		$markup = _html_bootstrap_panel('Upcoming Training/Tutoring', 'This training/tutoring has not happened yet, you can not report it yet.', 'panel panel-warning');
+		$reportAccess = false;
+		$reportDisabled = true;
+	}
+	else{
+
+		$form_state['nr_attendance'] = $nodeAttendance[0];
+		if(empty($form_state['nr_attendance']->note)){
+			$is_new = true;
+		}
+
+		$markup .= render($date);
+		$reportAccess = true;
+		$reportDisabled = false;
+	}
+
+  $form['#attributes'] = array('class' => array('well', 'well-lg'));
+  $form['node_information'] = array(
+    '#type' => 'markup',
+    '#title' => t('Date'),
+    '#markup' => $markup,
+  );
+  $form['report'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Report'),
+    //'#access' => $reportAccess,
+		'#disabled' => $reportDisabled,
+    //'#default_value' => !empty($nodeAttendance[0]->note) ? $nodeAttendance[0]->note : 'Please describe what you have covered in the session.',
+    '#default_value' => $is_new ? '' : $form_state['nr_attendance']->note,
+    '#description' => t('Fill out the report for this training'),
+  );
+
+  $form['actions'] = array('#type' => 'actions');
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => $is_new ? t('Save report') : t('Update report'),
+    '#disabled' => $reportDisabled,
+  );
+
+  $form['#validate'][] = '_nr_attendance_report_form_validate';
+  $form['#submit'][] = '_nr_attendance_report_form_submit';
+
+  return $form;
+}
+/**/
+/**
+ * Implements hook_node_registration_insert().
+ */
+function nr_attendance_node_registration_insert($registration) {
+	_create_attendance($registration);
+}
+/**
+ * Implements hook_node_registration_update().
+ */
+function nr_attendance_node_registration_update($registration) {
+	_update_attendance($registration);
+}
+/**
+ * Implements hook_node_registration_presave().
+ */
+/*function nr_attendance_node_registration_presave($registration) {
+}*/
+/**
+ * Implements hook_node_registration_delete().
+ */
+function nr_attendance_node_registration_delete($registration) {
+	_delete_attendance($registration);
+}
+/**
+ * Implements hook_views_api().
+ */
+function nr_attendance_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'nr_attendance') . '/includes',
+  );
+}
+/**
+ * Implements hook_user_login
+ */
+function nr_attendance_user_login(&$edit, $account) {
+
+	// redirect managers to "Manage Training" page
+	if(in_array('manager', $account->roles)){
+
+		//drupal_goto('manage/training');
+
+	}
+	// check if tutor missed any attendance report
+	else if(in_array('tutor', $account->roles)){
+		//_display_trainer_message($account, 't_core');
+		_display_missing_report_message($account->uid, 't_core');
+
+		// redirect tutors to own student attendance page
+		//drupal_goto('manage/session/attendance');
+
+	}
+	// check if trainer missed any attendance report
+	else if(in_array('trainer', $account->roles)){
+		/*
+		$trainingToReport = _display_trainer_message($account, 't_individual');
+		if(!empty($trainingToReport)){
+			drupal_set_message(t('You have NOT reported attendance for your past training(s), please check the list below and report them.'), 'error');
+			drupal_goto('manage/attendance/my-student');
+		}
+		*/
+
+		_display_missing_report_message($account->uid, 't_individual');
+
+		// redirect trainers to own student attendance page
+		//drupal_goto('manage/session/attendance');
+	}
+	// check if user is editor
+	else if(in_array('editor', $account->roles)){
+		//drupal_goto('manage/content');
+	}
+	// check if user is student
+	else if(in_array('student', $account->roles)){
+		//drupal_goto('manage/attendance/my');
+	}
+
+	//$missed = _display_missed_message($account);
+	//_display_upcoming_message($account);
+}
+
+/**
+ * Implements hook_field_extra_fields()
+ * @description: to expose and display dynamically created field(nr_attendance_unregistrable_reason) on page
+ */
+function nr_attendance_field_extra_fields() {
+  $fields = array();
+
+  foreach (_node_registration_bundles() as $type => $name) {
+    // Node: reason for unregistrable.
+    $fields['node'][$type]['display']['nr_attendance_unregistrable_reason'] = array(
+      'label' => t('Reason for unregistrable (nr_attendance)'),
+      'description' => t("The reason users don't see a register form/tab. (nr_attendance)"),
+      'weight' => 1,
+    );
+  }
+
+  return $fields;
+}
+/**
+ * hook_entity_view
+ * @description: overwrite node_registration defalut "$entity->content['registration_unregistrable_reason']"
+ * STATIC TEMPORARY CONSTANT USED: for CSS class "panel panel-primary" bootstrap panel
+ */
+function nr_attendance_entity_view($entity, $entity_type, $view_mode, $langcode){
+
+	$bundleMachineName = isset($entity->type) ? $entity->type : false;
+	// check if this entity(node) is used for registration
+	if('node' == $entity_type && _node_registration_node_type_enabled($bundleMachineName) && !empty($entity->nid)) {
+
+		// setup necessory variables of current user
+		global $user; //$uid = $user->uid; $displayname = _get_displayname(user_load($uid));
+
+		$access = node_registration_node_access($entity, 'register', $user, $reason);
+
+		$typeName = node_type_get_name($entity);
+
+		$markup = ''; $css = 'panel panel-primary';
+
+		$markup .= _get_current_user_status($entity, $bundleMachineName, $typeName, $user, $reason);
+
+	  $entity->content['nr_attendance_unregistrable_reason'] = array(
+      '#type' => 'container',
+      '#attributes' => array('class' => array('nr-attendance', 'nr-attendance-unregistrable-reason')),
+      'content' => array(
+        '#markup' => $markup,
+      ),
+      '#access' => true,
+    );
+
+		// Cancel link to have the button look
+    //$entity->content['registration_form']['form']['actions']['return']['#attributes'] = array('class' => array('nr-attendance', 'btn', 'btn-default'));
+    // Hide Cancel link on main registration page
+    if(isset($entity->content['registration_form'])){
+	    $entity->content['registration_form']['form']['actions']['return']['#access'] = false;
+	    $entity->content['registration_form']['form']['email']['#title'] = t('Your Email');
+	    $entity->content['registration_form']['#attributes']['class'][] = 'well well-lg';
+    }
+
+    if(isset($entity->content['registration_slots_left'])) $entity->content['registration_slots_left']['content']['#markup'] = '<div class="alert alert-info" role="alert">'.$entity->content['registration_slots_left']['content']['#markup'].'</div>';
+
+    if(isset($entity->content['registration_unregistrable_reason'])) $entity->content['registration_unregistrable_reason']['#access'] = false;
+	}
+
+	// to add "Create class from this course" button on course bundle for prepopulate the class description
+	if('node' == $entity_type && $entity->type == 'course'){
+
+		$entity->content['nr_attendance_add_class'] = array(
+      '#type' => 'container',
+      '#attributes' => array('class' => array('nr-attendance', 'nr-attendance-add-class')),
+      'content' => array(
+        '#markup' => '<a class="btn btn-primary btn-sm" href="/node/add/t-class?edit[title]='.urlencode($entity->title).'&field_course='.$entity->nid.'">Add Class training with this course</a>',
+      ),
+      '#access' => true,
+    );
+
+	}
+}
+/**
+ * Implements hook_entity_update
+ * @description:
+ *
+function nr_attendance_entity_update($entity, $entity_type) {
+}/**/
+/**
+ * Implements hook_form_node_form_alter
+ * @description: to prevent update of any training/tutoring if there is any registration attached to it.
+ */
+function nr_attendance_form_node_form_alter(&$form, $form_state) {
+
+	global $user;
+	$bundleMachineName = isset($form['#bundle']) ? $form['#bundle'] : false;
+	$typeIsForRegistration = _node_registration_node_type_enabled($bundleMachineName);
+	$nid = isset($form['nid']['#value']) ? $form['nid']['#value'] : false;
+
+	// make sure this is update page by evaluating node id is presented
+	if('node' == $form['#entity_type'] && $typeIsForRegistration){
+
+		// check if this is for update node
+		if($nid){
+
+			// get all the user who registered for this, assuming this is future training.
+			$results = _get_attendance_by_nid($nid, $bundleMachineName, true);
+
+			// if anyone registered for this
+			if(!empty($results[0])){
+				foreach($results as $key => $result){
+					// if there is a user who didn't cancel registration
+					if(!$result->cancelled){
+						$canDelete = false;
+						break;
+					}
+				}
+				if(isset($canDelete) && !$canDelete){
+					if($form['type']['#value'] == 't_class'){
+						// by jsong can't disable the date field, need to find other solution!!
+						// only disable date & course selector
+						$form['field_date']['#disabled'] = true;
+						//$form['field_date']['und'][0]['#element_validate'] = null;
+						/*
+						drupal_add_js('jQuery(document).ready(function(){
+							jQuery("#edit-field-date").find("input").prop("disabled", true);
+						});', 'inline');
+						*/
+
+						$form['field_course']['#disabled'] = true;
+						drupal_set_message(t('A user has registered for this session, you can no longer change the date. Contact LC staff if you need to change it.'), 'error');
+					}else{
+						// disable everything
+						drupal_set_message(t('A user has registered for this session, you can no longer delete it. Contact LC staff if you need to delete it.'), 'error');
+						if(!in_array('administrator', $user->roles)) $form['#disabled'] = true;
+					}
+				}
+			}
+		}
+
+		// insert the validator, you must make sure the default end date NOT to be empty and have a future date ( + 1 year or more) OR set collect end date to False on the date field setting page.
+		$form['#validate'][] = "_nr_attendance_field_date_validate";
+
+		// disable access to node registration on/off check box option on node edit page, except manager and administrator roles
+		//if($typeIsForRegistration && !(in_array('manager', $user->roles) || in_array('administrator', $user->roles))){
+		if($typeIsForRegistration && !in_array('administrator', $user->roles)){
+			$form['node_registration']['#access'] = false;
+		}
+	}
+
+	// check if trainer is trying to add an individual training
+	if($typeIsForRegistration && $form['#bundle'] == 't_individual' && in_array('trainer', $user->roles)){
+
+		// check if trainer missed any attendance report
+		if(_display_missing_report_message($user->uid, 't_individual')){
+
+			// disable form
+			$form['#disabled'] = true;
+		}
+
+	}
+
+	// check if trainer is trying to add an individual training
+	if($typeIsForRegistration && $form['#bundle'] == 't_core' && (in_array('manager', $user->roles) || in_array('administrator', $user->roles))){
+		$form['author']['#title'] = t('Tutor Information');
+		$form['author']['name']['#title'] = t('Tutoring by');
+		$form['author']['name']['#description'] = t('Type in the tutor username (email) for this session');
+	}
+
+}
+/**
+ * Implements hook_form_FORM_ID_alter
+ * @description: to conditionally prevent node deletion, because node with registered user should never be deleted.
+ */
+function nr_attendance_form_node_delete_confirm_alter(&$form, $form_state) {
+
+	$typeName = $form['#node']->type;
+	if(_node_registration_node_type_enabled($typeName)){
+		$nonCancelled = _get_attendance_by_nid($form['nid']['#value'], $typeName);
+		if(!empty($nonCancelled)){
+			$form['description']['#markup'] = _html_bootstrap_panel('Registration Found', 'A user has registered for this session, you can no longer delete it. Contact LC staff if you need to delete it.', $css = 'panel panel-danger');
+			unset($form['actions']['submit']);
+		}else{
+			$form['description']['#markup'] = '<h2 class="node-delete-confirm">You are about to delete session "'.$form['#node']->title.'" on '.format_date($form['#node']->field_date['und'][0]['value'], 'long').', Are you sure?</h2>';
+		}
+
+	}
+
+	$form['actions']['cancel']['#attributes'] = array('class' => array('nr-attendance', 'btn', 'btn-default'));
+}
+/**
+ * Implements hook_form_alter
+ * @description: customizing registration cancel confirmation page
+ */
+function nr_attendance_form_node_registration_cancel_confirm_alter(&$form, $form_state) {
+
+	$form['#attributes']['class'][] = 'well well-lg';
+	$form['description']['#markup'] = '<h2>This action cannot be undone. Are you sure you want to cancel?</h2>';
+	$form['actions']['cancel']['#title'] = t('Go Back');
+	$form['actions']['cancel']['#attributes']['class'] = array('btn', 'btn-info');
+	$form['actions']['submit']['#value'] = t('Cancel Registration');
+	$form['actions']['submit']['#attributes']['class'] = array('btn', 'btn-danger');
+
+}
+
+function nr_attendance_preprocess_page(&$variables){
+
+	//dsm($variables);
+
+	$tabs = &$variables['tabs']['#primary'];
+	//$tabs = isset($variables['tabs']['#primary']) ? &$variables['tabs']['#primary'] : false;
+
+	$enabledRegistration = isset($variables['node']->type) ? _node_registration_node_type_enabled($variables['node']->type) : false;
+
+	// if the bundle is not used for registration, then hide the attendance tab
+	if(!$enabledRegistration && !empty($tabs)){
+		foreach($tabs as $key => $tab){
+			if(isset($tabs[$key]['#link']['path']) && $tabs[$key]['#link']['path'] == 'node/%/nr_attendance'){
+				//if(!in_array('administrator', $variables['user']->roles))
+				if(!in_array('page__node__nr_attendance', $variables['theme_hook_suggestions'])) $tabs[$key]['#access'] = false;
+			}
+		}
+	}
+
+	// if the bundle is use for registration, then then hide defalut registration tabs
+	if($enabledRegistration || in_array('page__node__nr_attendance', $variables['theme_hook_suggestions'])){
+		foreach($tabs as $key => $tab){
+			if($tabs[$key]['#link']['path'] == 'node/%/node_registration' || $tabs[$key]['#link']['path'] == 'node/%/register'){
+				//if(!in_array('administrator', $variables['user']->roles))
+					$tabs[$key]['#access'] = false;
+			}
+		}
+	}
+
+	global $user;
+
+/*
+	if($user->uid == 104){
+		dsm(user_load($user->uid));
+		dsm(current_path());
+	}
+*/
+
+	// display the attendance status message to user on each page
+	$currentPage = current_path();
+	if($currentPage == 'manage/attendance/my'){
+		$user = user_load($user->uid);
+		_display_missed_message($user, $currentPage);
+		_display_upcoming_message($user, $currentPage);
+	}
+
+}
+
+/**
+ * Implements hook_views_bulk_operations_form_alter
+ * @description: modify order of the select buttons
+ */
+function nr_attendance_views_bulk_operations_form_alter(&$form, &$form_state, $vbo) {
+
+//dsm($form);
+
+	if($form['#form_id'] == 'views_form_registration_attendance_each_node_block_mobile_block_attendance_each_mobile'){
+		$form['select']['#title'] = t("Please select your name below to check in. If you can't find your name we can create a registration for you.");
+	}elseif($form['#form_id'] == 'views_form_registration_attendance_each_node_block_mobile_block_attendance_each'){
+		$form['select']['#title'] = t("Attendance Operations (make sure to select the checkbox first)");
+	}
+
+	if($form['select']['action::nr_attendance_attended_action']){
+		$form['select']['action::nr_attendance_attended_action']['#weight'] = 10;
+		$form['select']['action::nr_attendance_unattended_action']['#weight'] = 20;
+	}
+
+	if($form['select']['action::nr_attendance_bypass_action']){
+		$form['select']['action::nr_attendance_bypass_action']['#weight'] = 30;
+		$form['select']['action::nr_attendance_unbypass_action']['#weight'] = 40;
+	}
+
+
+}
+
+/**
+ * Implements hook_views_pre_rendar
+ * @description: add user display name on the user info field.
+ */
+function nr_attendance_views_pre_render(&$view){
+	//dsm($view->name);
+	$viewName = $view->name;
+	if($viewName == 'user_attendance'){
+
+		foreach($view->result as $each){
+			//dsm(' => '.$each->nr_attendance_user_name);
+			//dsm(user_load($each->nr_attendance_uid)->field_display_name['und'][0]['safe_value']);
+			$displayname = user_load($each->nr_attendance_uid)->field_display_name['und'][0]['safe_value'];
+			$each->nr_attendance_user_email = $displayname.' ('.$each->nr_attendance_user_email.')';
+		}
+
+		//dsm($view);
+	}elseif($viewName == 'manage_session_attendance'){
+
+/**/
+		foreach($view->result as $each){
+
+			$registee = user_load($each->nr_attendance_uid);
+			$berkleeID = $registee->field_berklee_id['und'][0]['safe_value'];
+			$displayname = $registee->field_display_name['und'][0]['safe_value'];
+			$each->nr_attendance_user_name = $displayname.' ('.$each->nr_attendance_user_name.')';
+			$each->nr_attendance_user_email = $berkleeID;
+			//dpm($berkleeID.'-> '.$displayname);
+			//dpm($each);
+		}
+/**/
+	}elseif($viewName == 'registration_attendance_each_node_block'
+					|| $viewName == 'registration_attendance_each_node_block_mobile'
+				 ){
+
+		foreach($view->result as $each){
+
+			$displayname = user_load($each->nr_attendance_uid)->field_display_name['und'][0]['safe_value'];
+			$each->node_nr_attendance_title = $displayname.' ('.$each->nr_attendance_user_email.')';
+			//dsm($each);
+
+		}
+	}/*
+elseif($viewName == 'registration_submission_peer'){
+		dsm($view->result[0]);
+		foreach($view->result as $each){
+			if($each->nr_attendance_node_cancelled > 0) $each->field_comment_body[0]['rendered']['#markup'] = '';
+		}
+	}
+*/
+
+	if($viewName == 'training_statistics'
+			|| $viewName == 'manage_training_statistics_by_date'
+		){
+
+		$attendanceTotal = 0; $absentTotal = 0; $walkinTotal = 0;
+		foreach($view->style_plugin->rendered_fields as &$each){
+			//dsm($each['attended'] .' <> '. $each['field_walkin_count']);
+
+			$walkinTotal = $walkinTotal + $each['field_walkin_count'];
+			// Total attended field
+			$each['nothing_2'] = $each['attended'] + $each['field_walkin_count'];
+			$attendanceTotal = $attendanceTotal + $each['nothing_2'];
+			// Absent field
+			$absent = $each['registration_id'] - ($each['attended'] + $each['cancelled']);
+			$each['nothing_3'] = $absent;// < 0 ? 0 : $absent;
+			$absentTotal = $absentTotal + $each['nothing_3'];
+		}
+
+		$view->totals['nothing_2'] = $attendanceTotal;
+		$view->totals['nothing_3'] = $absentTotal;
+		$view->totals['field_walkin_count'] = $walkinTotal;
+
+		// For adding "0" consistanly through all empty cell
+		drupal_add_js('jQuery(document).ready(function($){
+			$("#views-aggregator-datatable tbody td").each(function(){
+				if(!$(this).text().trim()) $(this).text("0");
+			});
+		});', 'inline');
+
+		//dsm($view);
+	}elseif($viewName == 'manage_training_statistics_semester'){
+
+		$attendanceTotal = 0;
+		$absentTotal = 0;
+		$walkinTotal = 0;
+		$weekCounter = 0;
+		$classTotal = 0;
+		foreach($view->style_plugin->rendered_fields as &$each){
+
+			// Walkin Field
+			$each['field_walkin_count'] = array_sum(explode('<br/>', $each['field_walkin_count']));
+			$walkinTotal = $walkinTotal + $each['field_walkin_count'];
+
+			// Class Count
+			$each['nid'] = count(explode('<br/>', $each['nid']));
+			$classTotal = $classTotal + $each['nid'];
+
+			// Total attended field
+			$each['nothing_2'] = $each['attended'] + $each['field_walkin_count'];
+			$attendanceTotal = $attendanceTotal + $each['nothing_2'];
+
+			// Absent field
+			$absent = $each['registration_id'] - ($each['attended'] + $each['cancelled']);
+			$each['nothing_3'] = $absent;// < 0 ? 0 : $absent;
+			$absentTotal = $absentTotal + $each['nothing_3'];
+
+			// Average Attendance per Session (total attended / class count)
+			$each['nothing_4'] = round($each['attended'] / $each['nid'], 1);
+
+			// Total Attendance Rate (Total attendance / Registered)
+			$each['nothing_5'] = (round($each['nothing_2'] / $each['registration_id'], 2) * 100) . '%';
+
+			// Registered Attendance Rate (Attended / Registered)
+			$each['nothing_6'] = (round($each['attended'] / $each['registration_id'], 2) * 100) . '%';
+
+			// Week # (counter) field
+			$each['counter'] = $weekCounter++;
+		}
+
+		// <tfoot> section for each column's total
+		$view->totals['nothing_2'] = $attendanceTotal;
+		$view->totals['nothing_3'] = $absentTotal;
+		$view->totals['field_walkin_count'] = $walkinTotal;
+		$view->totals['nid'] = $classTotal;
+
+		// For adding "0" consistanly through all empty cell
+		drupal_add_js('jQuery(document).ready(function($){
+			$("#views-aggregator-datatable tbody td").each(function(){
+				if(!$(this).text().trim()) $(this).text("0");
+			});
+		});', 'inline');
+
+		//dsm($view);
+	}elseif($viewName == 'manage_peer_statistics_semester'){
+
+		//$attendanceTotal = 0;
+		$absentTotal = 0;
+		$unusedTotal = 0;
+		$weekCounter = 1;
+		$sessionTotal = 0;
+		$attendanceRateTotal = 0;
+		foreach($view->style_plugin->rendered_fields as &$each){
+
+			// Walkin Field
+			//$each['field_walkin_count'] = array_sum(explode('<br/>', $each['field_walkin_count']));
+			//$walkinTotal = $walkinTotal + $each['field_walkin_count'];
+
+			// Session Count
+			$each['nid'] = count(explode('<br/>', $each['nid']));
+			$sessionTotal = $sessionTotal + $each['nid'];
+
+			// Total attended field
+			//$each['nothing_2'] = $each['attended'] + $each['field_walkin_count'];
+			//$attendanceTotal = $attendanceTotal + $each['nothing_2'];
+
+			// Absent field
+			$absent = $each['registration_id'] - ($each['attended'] + $each['cancelled']);
+			$each['nothing_3'] = $absent;// < 0 ? 0 : $absent;
+			$absentTotal = $absentTotal + $each['nothing_3'];
+
+			// Un used session
+			$each['nothing_4'] = $each['nid'] - $each['attended'];
+			$unusedTotal = $unusedTotal + $each['nothing_4'];
+
+			// Attended / Available
+			$attendanceRate = (round($each['attended'] / $each['nid'], 2) * 100);
+			$attendanceRateTotal = $attendanceRateTotal + $attendanceRate;
+			$each['nothing_5'] = $attendanceRate . '%';
+
+			// Registered Attendance Rate (Attended / Registered)
+			//$each['nothing_6'] = (round($each['attended'] / $each['registration_id'], 2) * 100) . '%';
+
+			// Week # (counter) field
+			$each['counter'] = $weekCounter++;
+		}
+
+		// <tfoot> section for each column's total
+		//$view->totals['nothing_2'] = $attendanceTotal;
+		$view->totals['nid'] = $sessionTotal.' | '.round($sessionTotal/$weekCounter, 1).' (Avg)';
+		$view->totals['nothing_3'] = $absentTotal.' | '.round($absentTotal/$weekCounter, 1).' (Avg)';
+		$view->totals['nothing_4'] = $unusedTotal.' | '.round($unusedTotal/$weekCounter, 1).' (Avg)';
+		$view->totals['nothing_5'] = round($attendanceRateTotal/$weekCounter, 1).'% (Avg)';
+		$view->totals['registration_id'] = $view->totals['registration_id'].' | '.round($view->totals['registration_id']/$weekCounter, 1).' (Avg)';
+		$view->totals['attended'] = $view->totals['attended'].' | '.round($view->totals['attended']/$weekCounter, 1).' (Avg)';
+		$view->totals['cancelled'] = $view->totals['cancelled'].' | '.round($view->totals['cancelled']/$weekCounter, 1).' (Avg)';
+
+		// For adding "0" consistanly through all empty cell
+		drupal_add_js('jQuery(document).ready(function($){
+			$("#views-aggregator-datatable tbody td").each(function(){
+				if(!$(this).text().trim()) $(this).text("0");
+			});
+		});', 'inline');
+
+	}elseif($viewName == 'manage_peer_statistics_by_week'){
+
+		$missed = 0; $avaiable = 0; $attended = 0;
+		foreach($view->style_plugin->rendered_fields as &$each){
+			//$timestamp = $each->field_field_date[0]['raw']['value'];
+			//dsm($each);
+
+			if(!$each['registration_available_slots'] && !$each['attended'] && $each['confirmed']){
+				$each['nothing_1'] = 1;
+				$missed++;
+			}elseif(!$each['registration_available_slots'] && !$each['attended'] && !$each['confirmed']){
+
+				if($each['views_conditional']){
+					//$each['nothing_1'] = 'UPCOMING';
+				}
+				elseif($each['bypassed']){
+					$each['nothing_1'] = '1 (BYPASSED)';
+					$missed++;
+				}else{
+					$each['nothing_1'] = 'NOT CONFIRMED BY TRAINER!';
+				}
+
+			}
+
+			if($each['registration_available_slots']) $avaiable++;
+
+			if($each['attended']) $attended++;
+
+		}
+
+		$sessioncount = count($view->style_plugin->rendered_fields);
+		$view->totals['user_name'] = '';
+		$view->totals['field_date'] = $sessioncount;
+		$view->totals['nothing_1'] = $missed;
+		$view->totals['registration_available_slots'] = $avaiable;
+		$view->totals['attended'] = $attended;
+		$view->totals['comment_count'] = '% Sign Up ('.round((($view->totals['nothing_1'] + $view->totals['attended']) / $sessioncount) * 100, 1).')';
+		//dsm($view->style_plugin->rendered_fields);
+
+
+	}
+
+	//dsm($viewName);
+}

@@ -1,0 +1,55 @@
+
+.nr-attendance .cancelled.n,
+.nr-attendance .bypassed.n,
+.nr-attendance .waitinglist.n,
+.nr-attendance .attended.y,
+.nr-attendance .verified.y,
+.nr-attendance .registration-status.enabled,
+.nr-attendance .enabled .registration-status {
+	color: #3c763d;
+}
+
+.nr-attendance .cancelled.y,
+.nr-attendance .bypassed.y,
+.nr-attendance .waitinglist.y,
+.nr-attendance .attended.n,
+.nr-attendance .verified.n,
+.nr-attendance .registration-status.disabled,
+.nr-attendance .disabled .registration-status {
+	color: #a94442;
+}
+
+.nr-attendance .alert-danger{
+	color: #FFF;
+	background-color: #d9534f;
+	border-color: #d9534f;
+	font-weight: bold;
+}
+
+.nr-attendance .alert {
+	margin-bottom: 0;
+}
+.confirmation h2{
+	margin-top: 0;
+}
+
+.nr-registration-row.NONONO.future-training{
+	/* background-color: #eeffee; */
+	background-color: rgba(238,255,238,0.5);
+}
+.nr-registration-row.NO.past-training, .nr-registration-row.NONONO.past-training{
+	background-color: rgba(242,222,222,0.5);
+}
+
+.nr-attendance.Filled{
+	background-color: rgba(0,0,0,0.1);
+}
+
+.page-node-add-t-core .form-item-field-date-und-0-value2,
+.page-node-edit.node-type-t-core .form-item-field-date-und-0-value2,
+.page-node-add-t-individual .form-item-field-date-und-0-value2,
+.page-node-edit.node-type-t-individual .form-item-field-date-und-0-value2,
+.page-node-add-t-class .form-item-field-date-und-0-value2,
+.page-node-edit.node-type-t-class .form-item-field-date-und-0-value2{
+	display:none
+}

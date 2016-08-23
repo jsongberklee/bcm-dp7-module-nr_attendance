@@ -1,0 +1,14 @@
+name = Node Registration Attendance
+description = A sub module to manage user registration
+dependencies[] = views
+dependencies[] = views_bulk_operations
+dependencies[] = node_registration
+package = Node registration
+project = "nr_attendance"
+core = 7.x
+files[] = nr_attendance.module
+files[] = includes/nr_attendance.entity.inc
+files[] = includes/nr_attendance.actions.inc
+files[] = includes/nr_attendance.functions.inc
+
+files[] = nr_attendance.css

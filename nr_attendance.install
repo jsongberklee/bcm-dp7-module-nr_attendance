@@ -1,0 +1,278 @@
+<?php
+
+/**
+ * @file
+ * Install, uninstall, enable and disable hooks and schema.
+ */
+
+/**
+ * Implements hook_uninstall().
+ *
+ * Delete variables.
+ */
+function nr_attendance_uninstall() {
+  // Delete variables.
+  $vars = db_query('SELECT name FROM {variable} WHERE name LIKE ?', array('nr\_attendance\_%'));
+  foreach ($vars as $var) {
+    watchdog('nr_attendance', 'deleting var: @var', array('@var' => $var->name));
+    variable_del($var->name);
+  }
+}
+
+
+/**
+ * Implements hook_schema().
+ *
+ * Define a table: nr_attendance
+ */
+function nr_attendance_schema() {
+  $schema['nr_attendance'] = array(
+    'description' => 'The base table for nr_attendance module.',
+    'fields' => array(
+      'attendance_id' => array(
+        'description' => 'The primary identifier for an attendance.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'node_type' => array(
+        'description' => "The node type of this registrations.",
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'nid' => array(
+        'description' => 'The id of the entity this attendance is associated with.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'registration_id' => array(
+        'description' => 'The id of the node_registration table this attendance is associated with.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'uid' => array(
+        'description' => 'The uid of the registree.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'user_name' => array(
+        'description' => "Registree username.",
+        'type' => 'varchar',
+        'length' => 254,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'user_email' => array(
+        'description' => "User's e-mail address.",
+        'type' => 'varchar',
+        'length' => 254,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'trainer_id' => array(
+        'description' => 'The trainer ID.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'trainer_name' => array(
+        'description' => "Trainer, tutor username.",
+        'type' => 'varchar',
+        'length' => 254,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'updater_id' => array(
+        'description' => 'Updated by ID.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'updater_name' => array(
+        'description' => "Updated by username.",
+        'type' => 'varchar',
+        'length' => 254,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'created' => array(
+        'description' => 'The Unix timestamp when the registration was created.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'cancelled' => array(
+        'description' => 'The timestamp when this registration was cancelled by the user.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'attended' => array(
+        'description' => 'Whether the registree attended the event, the Unix timestamp when marked by trainer',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'confirmed' => array(
+        'description' => 'Whether this attendance is confirmed, the Unix timestamp when marked by admin.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'bypassed' => array(
+        'description' => 'Whether this attendance is bypassed, the Unix timestamp when marked by admin.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'deleted' => array(
+        'description' => 'The timestamp when this registration was cancelled by the user.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'updated' => array(
+        'description' => 'The Unix timestamp when the registration was most recently saved.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+			'updated_str' => array(
+        'description' => "last updated date/time as string",
+        'type' => 'varchar',
+        'length' => 254,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'note' => array(
+				'type' => 'text',
+				'description' => "Note to collect the trainer report",
+				'size' => 'big',
+				'not null' => FALSE,
+			),
+    ),
+    'indexes' => array(
+      'attendance_updated' => array('updated'),
+      'attendance_created' => array('created'),
+      'attendance_cancelled' => array('cancelled'),
+    ),
+    'foreign keys' => array(
+      'attendance_node' => array(
+        'table' => 'node',
+        'columns' => array('nid' => 'nid'),
+      ),
+      'attendance_user' => array(
+        'table' => 'users',
+        'columns' => array('uid' => 'uid'),
+      ),
+      'attendance_registration' => array(
+        'table' => 'node_registration',
+        'columns' => array('registration_id' => 'rid'),
+      ),
+    ),
+    'primary key' => array('attendance_id'),
+  );
+
+  return $schema;
+}
+
+/**
+ * implement hook_update_N : to add a field to user entity.
+ * Deprecated
+function nr_attendance_update_7000() {
+	$field_name = 'field_nr_attendance';
+
+	if (!field_info_field($field_name)) {
+
+		$field = array( 'field_name' => $field_name, 'type' => 'text', 'settings' => array( 'max_length' => 32, ), );
+		field_create_field($field);
+
+		$instance = array(
+											'field_name' => $field_name,
+											'entity_type' => 'user',
+											'bundle' => 'user',
+											'label' => 'nr_attendance',
+											'description' => 'This field used by nr_attendance module, do not update.',
+											'required' => FALSE,
+											'display' => array(
+											  'teaser' => array(
+											    'label' => 'hidden',
+											    'type' => 'hidden',
+											  ),
+											  'default' => array(
+											    'label' => 'hidden',
+											    'type' => 'hidden',
+											  ),
+											),
+										);
+		field_create_instance($instance);
+		watchdog('nr_attendance', t('!field_name was added successfully.',
+		array('!field_name' => $field_name)));
+	}
+	else
+	{
+		watchdog('nr_attendance', t('!field_name already exists.', array('!field_name' => $field_name)));
+	}
+}
+/**/
+
+/**
+ * Add newcol field to {mytable1} table.
+ * added to Hook_schema()
+function nr_attendance_update_7001() {
+  $spec = array(
+    'type' => 'text',
+    'description' => "Note to collect the trainer report",
+    'size' => 'big',
+    'not null' => FALSE,
+  );
+  db_add_field( 'nr_attendance', 'note', $spec);
+}
+/**/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

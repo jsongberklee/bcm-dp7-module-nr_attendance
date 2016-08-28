@@ -10,7 +10,7 @@ function _create_attendance($registration){
 	$anow = _get_time_now();
 	$registee = user_load($registration->uid);
 	$username = $registee->name;
-	
+
 	// to add walkin value to the note field
 	$note = '';
 	$updater_id = 0;
@@ -18,7 +18,7 @@ function _create_attendance($registration){
 	$updated = 0;
 	$updated_str = 0;
 	$node = $registration->node;
-	if($node->type == 't_individual' && 
+	if($node->type == 't_individual' &&
 			(($node->field_date['und'][0]['value'] - 600) < $anow['timestamp'])
 	){
 		global $user;
@@ -29,7 +29,7 @@ function _create_attendance($registration){
 		$updated_str = $anow['string'];
 		// add "walkin" if registration is after 10 minutes before session start
 		$note = 'walkin-peer';
-		
+
 		// also set the field value to 1 (will be use as true)
 		$node->field_walkin_count['und'][0]['value'] = 1;
 		node_save($node);
@@ -163,7 +163,7 @@ function _get_time_now(){
  */
 function _get_attendance_by_nid($nid, $registrationtype = '', $all = false){
 	//dsm('FUNCTION _get_attendance_by_nid() #'.debug_backtrace()[0]['line'].' at '.debug_backtrace()[0]['file']);
-	
+
 	$query = db_select('nr_attendance', 'nr');
 		//$query->innerjoin('field_data_field_date', 'f', 'nr.nid = f.entity_id');
 		$query->fields('nr')
@@ -683,21 +683,21 @@ function _html_bootstrap_alert($message, $type='danger'){
 // allow peer trainer to add the walkin student (10 minutes before the session until end of the session
 function _bypass_block_peertrainer($entity, $debug = null){
 	//if($debug == 'debug')	dsm('FUNCTION _bypass_block_peertrainer() #'.debug_backtrace()[0]['line'].' at '.debug_backtrace()[0]['file']);
-	
+
 	if($entity->type == 't_individual'){
 		global $user;
 		if(in_array('administrator',$user->roles) || in_array('manager',$user->roles) || (in_array('trainer',$user->roles) && $user->uid == $entity->uid)){
 			$starttime = $entity->field_date['und'][0]['value'] - 600;
 			$endtime = $entity->field_date['und'][0]['value2'];// +(9600);
 			$now = time();
-			
+
 			if($endtime > $now && $starttime < $now) return 'true';
 		}
 	}
 	return false;
 }
 function _block_registration_form($entity){
-	
+
 	$entity->content['registration_form'] = array(
 							'#type' => 'container',
 							'#attributes' => array('class' => array('nr-attendance', 'nr-attendance-registration-form-blocked')),
@@ -716,8 +716,8 @@ function _get_unregistrable_reason($reason, $typeName, $bundleMachineName, $retu
 				// disabled blocking the peer trainer temporarily for PT2 rule
 				if($bundleMachineName == 't_individual' && _bypass_block_peertrainer($entity)){
 					return;
-				} 
-				
+				}
+
 					return _html_bootstrap_panel('Session unavailable.', 'This '.$typeName.' has already occured.<br /><a class="btn btn-primary btn-sm unregistrable" href="'.$returnUrl.'">Back To the '.$typeName.' list</a>', 'panel panel-warning');
 
 				break;
@@ -839,7 +839,9 @@ function _get_current_user_status($entity, $bundleMachineName, $typeName, $user,
 					// block registration form
 					// disabled blocking the peer trainer temporarily for PT2 rule the function added
 					$allowed = _bypass_block_peertrainer($entity);
-					$filledUp = empty(_get_attendance_by_nid($entity->nid, 't_individual')) ? false : true;
+					// check if anyone register for this session
+					$attendance = _get_attendance_by_nid($entity->nid, 't_individual');
+					$filledUp = empty($attendance) ? false : true;
 					$allowed = $filledUp ? false : $allowed;
 					if(!$allowed){
 						_block_registration_form($entity);
@@ -848,9 +850,9 @@ function _get_current_user_status($entity, $bundleMachineName, $typeName, $user,
 						}else{
 							return _html_bootstrap_panel('This session is created by you', 'And can only register the walk-in student during your session.', 'panel panel-warning');
 						}
-						
+
 					}
-					
+
 				}
 				///////////////////////////////////////////////////////////////////
 				///////////////////////////////////////////////////////////////////

@@ -6,10 +6,34 @@
  * Update the table data
  */
 function _create_attendance($registration){
-
+	//dsm('FUNCTION _create_attendance() #'.debug_backtrace()[0]['line'].' at '.debug_backtrace()[0]['file']);
 	$anow = _get_time_now();
 	$registee = user_load($registration->uid);
 	$username = $registee->name;
+	
+	// to add walkin value to the note field
+	$note = '';
+	$updater_id = 0;
+	$updater_name = '';
+	$updated = 0;
+	$updated_str = 0;
+	$node = $registration->node;
+	if($node->type == 't_individual' && 
+			(($node->field_date['und'][0]['value'] - 600) < $anow['timestamp'])
+	){
+		global $user;
+		$registration->attended = 1;
+		$updater_id = $user->uid;
+		$updater_name = $user->name;
+		$updated = $anow['timestamp'];
+		$updated_str = $anow['string'];
+		// add "walkin" if registration is after 10 minutes before session start
+		$note = 'walkin-peer';
+		
+		// also set the field value to 1 (will be use as true)
+		$node->field_walkin_count['und'][0]['value'] = 1;
+		node_save($node);
+	}
 
 	$attendanceId = db_insert('nr_attendance')
 					->fields(array('node_type' => $registration->node_type,
@@ -21,8 +45,13 @@ function _create_attendance($registration){
 													'trainer_id' => $registration->node->uid,
 													'trainer_name' => $registration->node->name,
 													'created' => $registration->created,
-													//'updated' => $registration->created,
-													'updated_str' => $anow['string'],
+													'note' => $note,
+													'updater_id' => $updater_id,
+													'updater_name' => $updater_name,
+													'updated' => $updated,
+													'updated_str' => $updated_str,
+													'attended' => ($registration->attended != 0) ? $updated : 0,
+													'confirmed' => ($registration->attended != 0) ? $updated : 0,
 												))->execute();
 
 	// To store registee's phone number on the profile page
@@ -133,6 +162,8 @@ function _get_time_now(){
  * @description: return value is an array of Non-cancelled attendance
  */
 function _get_attendance_by_nid($nid, $registrationtype = '', $all = false){
+	//dsm('FUNCTION _get_attendance_by_nid() #'.debug_backtrace()[0]['line'].' at '.debug_backtrace()[0]['file']);
+	
 	$query = db_select('nr_attendance', 'nr');
 		//$query->innerjoin('field_data_field_date', 'f', 'nr.nid = f.entity_id');
 		$query->fields('nr')
@@ -181,8 +212,6 @@ function _get_attended_attendance_by_uid($uid, $registrationtype, $weekcount = 1
 
 		// Due to PHP "this week" expression on date function bug(using on Sunday), if today is Sunday, we have to check with monday last week to compare instead monday this week, because checking "monday this week" on sunday(with today) will get next monday(tomorrow).
 		$thismonday = (date('w', time()) == 0 ? strtotime('monday last week') : strtotime('monday this week')); //$nextmonday = strtotime('monday next week');
-		//dsm(date('Y m d', $thismonday));
-		//dsm(date('Y m d', time()));
 
 		$query->condition('f.field_date_value', $thismonday, '>'); // greater than beginning of this monday
 		$query->condition('f.field_date_value', $now, '<'); // less than (Past)
@@ -628,13 +657,6 @@ function _get_displayname($account){
 	$field = field_get_items('user', $account, 'field_display_name');
 	$value = field_view_value('user', $account, 'field_display_name', $field[0]);
 
-/*
-	if($account->uid == 104){
-		dsm($variables);
-		dsm($field);
-	}
-*/
-
 	return render($value);
 }
 
@@ -658,7 +680,24 @@ function _html_bootstrap_alert($message, $type='danger'){
 	}
 
 }
+// allow peer trainer to add the walkin student (10 minutes before the session until end of the session
+function _bypass_block_peertrainer($entity, $debug = null){
+	//if($debug == 'debug')	dsm('FUNCTION _bypass_block_peertrainer() #'.debug_backtrace()[0]['line'].' at '.debug_backtrace()[0]['file']);
+	
+	if($entity->type == 't_individual'){
+		global $user;
+		if(in_array('administrator',$user->roles) || in_array('manager',$user->roles) || (in_array('trainer',$user->roles) && $user->uid == $entity->uid)){
+			$starttime = $entity->field_date['und'][0]['value'] - 600;
+			$endtime = $entity->field_date['und'][0]['value2'];// +(9600);
+			$now = time();
+			
+			if($endtime > $now && $starttime < $now) return 'true';
+		}
+	}
+	return false;
+}
 function _block_registration_form($entity){
+	
 	$entity->content['registration_form'] = array(
 							'#type' => 'container',
 							'#attributes' => array('class' => array('nr-attendance', 'nr-attendance-registration-form-blocked')),
@@ -670,31 +709,37 @@ function _block_registration_form($entity){
 	return;
 }
 
-function _get_unregistrable_reason($reason, $typeName, $bundleMachineName, $returnUrl = '/', $sessionEntity = null){
+function _get_unregistrable_reason($reason, $typeName, $bundleMachineName, $returnUrl = '/', $entity){
 		// Add reason for unregistrable.
     switch($reason){
 	    case 'date':
+				// disabled blocking the peer trainer temporarily for PT2 rule
+				if($bundleMachineName == 't_individual' && _bypass_block_peertrainer($entity)){
+					return;
+				} 
+				
+					return _html_bootstrap_panel('Session unavailable.', 'This '.$typeName.' has already occured.<br /><a class="btn btn-primary btn-sm unregistrable" href="'.$returnUrl.'">Back To the '.$typeName.' list</a>', 'panel panel-warning');
 
-				return _html_bootstrap_panel('Session unavailable.', 'This '.$typeName.' has already occured.<br /><a class="btn btn-primary btn-sm unregistrable" href="'.$returnUrl.'">Back To the '.$typeName.' list</a>', 'panel panel-warning');
-
+				break;
 	    case 'registered':
 
-	    	if($sessionEntity){
-	    		$gcal = _nr_attendance_add2gcal($sessionEntity->field_date, $sessionEntity->title.' : '.$typeName.' @ Berklee Learning Center', '', 'Learning Center, 150 Massachusetts Ave, Boston, MA', 'Learning Center @ Berklee College of Music');
+	    	if($entity){
+	    		$gcal = _nr_attendance_add2gcal($entity->field_date, $entity->title.' : '.$typeName.' @ Berklee Learning Center', '', 'Learning Center, 150 Massachusetts Ave, Boston, MA', 'Learning Center @ Berklee College of Music');
 
 	    	}
 
 				return _html_bootstrap_panel('Registration complete.', 'You have successfully signed up this '.$typeName.', visit <a class="btn btn-primary btn-sm unregistrable" href="/manage/attendance/my">My Registrations</a> if you need to cancel.<br />'.$gcal, 'panel panel-info');
-
+				break;
 	    case 'capacity':
 				return _html_bootstrap_panel($bundleMachineName == 't_class' ? 'No seats are currently available' : 'Session unavailable', ',<br />'.$bundleMachineName == 't_class' ? 'Please check back later to see if a spot has become available or contact the trainer for other options' : 'This '.$typeName.' is already booked by another student, please select another session.<br /><a class="btn btn-primary btn-sm unregistrable" href="'.$returnUrl.'">Back To '.$typeName.' list</a>', 'panel panel-warning');
-
+				break;
 	    case 'disabled':
 	    case 'access':
 	    	$dest = drupal_get_destination();
 	    	if($GLOBALS['user']->uid == 0) return _html_bootstrap_panel('Please log in to proceed', 'Please log in above to proceed.', 'panel panel-warning');
 	    	//if($GLOBALS['user']->uid == 0) return _html_bootstrap_panel('Registration Access Denied', 'Please log in to proceed.<br /><a class="btn btn-primary btn-sm unregistrable" href="/user/login?destination='.$dest['destination'].'">Go To Login page</a>', 'panel panel-warning');
 				return _html_bootstrap_panel('Registration Access Denied', '<br />This registration is closed.', 'panel panel-danger');
+				break;
 			default:
 				return '';
     }
@@ -792,8 +837,20 @@ function _get_current_user_status($entity, $bundleMachineName, $typeName, $user,
 				if(_is_user_author($user, $entity)){
 
 					// block registration form
-					if(isset($entity->content['registration_form'])) _block_registration_form($entity);
-					return _html_bootstrap_panel('This training was created by you', 'You can not register your own tutoring.', 'panel panel-warning');
+					// disabled blocking the peer trainer temporarily for PT2 rule the function added
+					$allowed = _bypass_block_peertrainer($entity);
+					$filledUp = empty(_get_attendance_by_nid($entity->nid, 't_individual')) ? false : true;
+					$allowed = $filledUp ? false : $allowed;
+					if(!$allowed){
+						_block_registration_form($entity);
+						if($filledUp){
+							return _html_bootstrap_panel('', 'Someone register for this, please check the attendance.', 'panel panel-warning');
+						}else{
+							return _html_bootstrap_panel('This session is created by you', 'And can only register the walk-in student during your session.', 'panel panel-warning');
+						}
+						
+					}
+					
 				}
 				///////////////////////////////////////////////////////////////////
 				///////////////////////////////////////////////////////////////////
@@ -972,15 +1029,6 @@ function _nr_attendance_add2gcal($sessionDate, $title = '', $description = '', $
 													$g_spropname.
 													$googlelink_suffix.
 												'</div>';
-
-/*
-	global $user;
-	if($user->uid == 112){
-		dsm(date_default_timezone_get());
-		dsm($sessionDate);
-		dsm($googlecalendarBtn);
-	}
-*/
 
 	return $googlecalendarBtn;
 

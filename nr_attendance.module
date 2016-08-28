@@ -36,34 +36,6 @@ function nr_attendance_init() {
 	// add the module CSS file
 	drupal_add_css(drupal_get_path('module', 'nr_attendance') . '/nr_attendance.css');
 }
-
-/**
- * Implements hook_menu().
- * @description: deprecated
- *
-function nr_attendance_menu() {
-
-  $items['node/%node/nr_attendance/list'] = array(
-    'title' => 'Report Attendance',
-    'access callback' => 'nr_attendance_user_report_access',
-    'access arguments' => array(1),
-    'type' => MENU_DEFAULT_LOCAL_TASK,
-    'tab_parent' => 'node/%/nr_attendance',
-  );
-  $items['node/%node/nr_attendance/report'] = array(
-    'title' => 'Report Session Feedback',
-    'page callback' => 'nr_attendance_report_page',
-    'page arguments' => array(1),
-    'access callback' => 'nr_attendance_user_report_access',
-    'access arguments' => array(1),
-    'file' => 'includes/nr_attendance.forms.inc',
-    'type' => MENU_LOCAL_TASK,
-    'tab_parent' => 'node/%/nr_attendance',
-  );
-
-return $items;
-}
-/**/
 /**
  * training/tutoring report page access
  */
@@ -77,81 +49,6 @@ function nr_attendance_user_report_access($node){
 	//}
 	return false;
 }
-/**
- * Page callback for reporting the attendance.
- *
-function nr_attendance_report_page($node, $account = NULL) {
-
-  drupal_set_title(t('Attendance report for @title', array('@title' => $node->title)), PASS_THROUGH);
-
-  return drupal_get_form('nr_attendance_report_form', $node, $account);
-}
-function nr_attendance_report_form($form, &$form_state) {
-
-	$node = $form_state['build_info']['args'][0];
-	$display = array('type' => 'long', 'label' => 'hidden');
-	$date = field_view_field('node', $node, 'field_date', $display);
-
-	$markup = '';
-	$type = $node->type;
-	$nodeAttendance = _get_attendance_by_nid($node->nid, $node->type);
-	$is_new = false;
-	$form['node_information']['#access'] = true;
-	$daterawvalue = field_get_items('node', $node, 'field_date')[0]['value'];
-
-	if(empty($nodeAttendance)){
-
-		$markup = _html_bootstrap_panel('Registered user not found', 'No one registered for this, you do not need to report.', 'panel panel-warning');
-		$reportAccess = false;
-		$reportDisabled = true;
-	}
-	else if($daterawvalue > time()){
-
-		$markup = _html_bootstrap_panel('Upcoming Training/Tutoring', 'This training/tutoring has not happened yet, you can not report it yet.', 'panel panel-warning');
-		$reportAccess = false;
-		$reportDisabled = true;
-	}
-	else{
-
-		$form_state['nr_attendance'] = $nodeAttendance[0];
-		if(empty($form_state['nr_attendance']->note)){
-			$is_new = true;
-		}
-
-		$markup .= render($date);
-		$reportAccess = true;
-		$reportDisabled = false;
-	}
-
-  $form['#attributes'] = array('class' => array('well', 'well-lg'));
-  $form['node_information'] = array(
-    '#type' => 'markup',
-    '#title' => t('Date'),
-    '#markup' => $markup,
-  );
-  $form['report'] = array(
-    '#type' => 'textarea',
-    '#title' => t('Report'),
-    //'#access' => $reportAccess,
-		'#disabled' => $reportDisabled,
-    //'#default_value' => !empty($nodeAttendance[0]->note) ? $nodeAttendance[0]->note : 'Please describe what you have covered in the session.',
-    '#default_value' => $is_new ? '' : $form_state['nr_attendance']->note,
-    '#description' => t('Fill out the report for this training'),
-  );
-
-  $form['actions'] = array('#type' => 'actions');
-  $form['actions']['submit'] = array(
-    '#type' => 'submit',
-    '#value' => $is_new ? t('Save report') : t('Update report'),
-    '#disabled' => $reportDisabled,
-  );
-
-  $form['#validate'][] = '_nr_attendance_report_form_validate';
-  $form['#submit'][] = '_nr_attendance_report_form_submit';
-
-  return $form;
-}
-/**/
 /**
  * Implements hook_node_registration_insert().
  */
@@ -293,6 +190,12 @@ function nr_attendance_entity_view($entity, $entity_type, $view_mode, $langcode)
     if(isset($entity->content['registration_slots_left'])) $entity->content['registration_slots_left']['content']['#markup'] = '<div class="alert alert-info" role="alert">'.$entity->content['registration_slots_left']['content']['#markup'].'</div>';
 
     if(isset($entity->content['registration_unregistrable_reason'])) $entity->content['registration_unregistrable_reason']['#access'] = false;
+		
+		// to display message if the training was walk-in.
+		if($bundleMachineName == 't_individual' && $entity->field_walkin_count['und'][0]['value'] > 0){
+			drupal_set_message('THIS WAS A WALK-IN SESSION.');
+		}
+		
 	}
 
 	// to add "Create class from this course" button on course bundle for prepopulate the class description
@@ -309,12 +212,7 @@ function nr_attendance_entity_view($entity, $entity_type, $view_mode, $langcode)
 
 	}
 }
-/**
- * Implements hook_entity_update
- * @description:
- *
-function nr_attendance_entity_update($entity, $entity_type) {
-}/**/
+
 /**
  * Implements hook_form_node_form_alter
  * @description: to prevent update of any training/tutoring if there is any registration attached to it.
@@ -387,6 +285,9 @@ function nr_attendance_form_node_form_alter(&$form, $form_state) {
 			$form['#disabled'] = true;
 		}
 
+		//disable the walkin field
+		$form['field_walkin_count']['#disabled'] = true;
+
 	}
 
 	// check if trainer is trying to add an individual training
@@ -434,8 +335,6 @@ function nr_attendance_form_node_registration_cancel_confirm_alter(&$form, $form
 
 function nr_attendance_preprocess_page(&$variables){
 
-	//dsm($variables);
-
 	$tabs = &$variables['tabs']['#primary'];
 	//$tabs = isset($variables['tabs']['#primary']) ? &$variables['tabs']['#primary'] : false;
 
@@ -463,13 +362,6 @@ function nr_attendance_preprocess_page(&$variables){
 
 	global $user;
 
-/*
-	if($user->uid == 104){
-		dsm(user_load($user->uid));
-		dsm(current_path());
-	}
-*/
-
 	// display the attendance status message to user on each page
 	$currentPage = current_path();
 	if($currentPage == 'manage/attendance/my'){
@@ -485,8 +377,6 @@ function nr_attendance_preprocess_page(&$variables){
  * @description: modify order of the select buttons
  */
 function nr_attendance_views_bulk_operations_form_alter(&$form, &$form_state, $vbo) {
-
-//dsm($form);
 
 	if($form['#form_id'] == 'views_form_registration_attendance_each_node_block_mobile_block_attendance_each_mobile'){
 		$form['select']['#title'] = t("Please select your name below to check in. If you can't find your name we can create a registration for you.");
@@ -512,18 +402,15 @@ function nr_attendance_views_bulk_operations_form_alter(&$form, &$form_state, $v
  * @description: add user display name on the user info field.
  */
 function nr_attendance_views_pre_render(&$view){
-	//dsm($view->name);
+
 	$viewName = $view->name;
 	if($viewName == 'user_attendance'){
 
 		foreach($view->result as $each){
-			//dsm(' => '.$each->nr_attendance_user_name);
-			//dsm(user_load($each->nr_attendance_uid)->field_display_name['und'][0]['safe_value']);
 			$displayname = user_load($each->nr_attendance_uid)->field_display_name['und'][0]['safe_value'];
 			$each->nr_attendance_user_email = $displayname.' ('.$each->nr_attendance_user_email.')';
 		}
-
-		//dsm($view);
+		
 	}elseif($viewName == 'manage_session_attendance'){
 
 /**/
@@ -546,12 +433,10 @@ function nr_attendance_views_pre_render(&$view){
 
 			$displayname = user_load($each->nr_attendance_uid)->field_display_name['und'][0]['safe_value'];
 			$each->node_nr_attendance_title = $displayname.' ('.$each->nr_attendance_user_email.')';
-			//dsm($each);
 
 		}
 	}/*
 elseif($viewName == 'registration_submission_peer'){
-		dsm($view->result[0]);
 		foreach($view->result as $each){
 			if($each->nr_attendance_node_cancelled > 0) $each->field_comment_body[0]['rendered']['#markup'] = '';
 		}
@@ -564,7 +449,6 @@ elseif($viewName == 'registration_submission_peer'){
 
 		$attendanceTotal = 0; $absentTotal = 0; $walkinTotal = 0;
 		foreach($view->style_plugin->rendered_fields as &$each){
-			//dsm($each['attended'] .' <> '. $each['field_walkin_count']);
 
 			$walkinTotal = $walkinTotal + $each['field_walkin_count'];
 			// Total attended field
@@ -587,7 +471,6 @@ elseif($viewName == 'registration_submission_peer'){
 			});
 		});', 'inline');
 
-		//dsm($view);
 	}elseif($viewName == 'manage_training_statistics_semester'){
 
 		$attendanceTotal = 0;
@@ -639,8 +522,7 @@ elseif($viewName == 'registration_submission_peer'){
 				if(!$(this).text().trim()) $(this).text("0");
 			});
 		});', 'inline');
-
-		//dsm($view);
+		
 	}elseif($viewName == 'manage_peer_statistics_semester'){
 
 		//$attendanceTotal = 0;
@@ -705,8 +587,6 @@ elseif($viewName == 'registration_submission_peer'){
 
 		$missed = 0; $avaiable = 0; $attended = 0;
 		foreach($view->style_plugin->rendered_fields as &$each){
-			//$timestamp = $each->field_field_date[0]['raw']['value'];
-			//dsm($each);
 
 			if(!$each['registration_available_slots'] && !$each['attended'] && $each['confirmed']){
 				$each['nothing_1'] = 1;
@@ -738,10 +618,24 @@ elseif($viewName == 'registration_submission_peer'){
 		$view->totals['registration_available_slots'] = $avaiable;
 		$view->totals['attended'] = $attended;
 		$view->totals['comment_count'] = '% Sign Up ('.round((($view->totals['nothing_1'] + $view->totals['attended']) / $sessioncount) * 100, 1).')';
-		//dsm($view->style_plugin->rendered_fields);
-
 
 	}
+}
 
-	//dsm($viewName);
+/**
+ * Validation handler for node_registration_form().
+ */
+function nr_attendance_registration_form_validate($form, &$form_state) {
+	//dsm('FUNCTION nr_attendance_registration_form_validate #'.debug_backtrace()[0]['line'].' at '.debug_backtrace()[0]['file']);
+	
+	// validate if the user whom the trainer tries to add as a walkin
+	if($form['#node']->type == 't_individual' && _bypass_block_peertrainer($form['#node'])){
+		$registee = user_load_by_name($form['account']['#value']);
+		$result = _get_upcoming_attendance_by_uid($registee->uid, 't_individual');
+		if(!empty($result)){
+			// throw the error if the user has any upcoming training
+			return form_set_error('account', t("The user ".$registee->name." has an upcoming Peer training already, registration failed."));
+		}
+	}
+	
 }

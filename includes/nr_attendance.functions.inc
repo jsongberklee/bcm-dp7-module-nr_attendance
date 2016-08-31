@@ -735,9 +735,17 @@ function _get_unregistrable_reason($reason, $typeName, $bundleMachineName, $retu
 				break;
 	    case 'disabled':
 	    case 'access':
+				global $user;
 	    	$dest = drupal_get_destination();
-	    	if($GLOBALS['user']->uid == 0) return _html_bootstrap_panel('Please log in to proceed', 'Please log in above to proceed.', 'panel panel-warning');
+	    	if($user->uid == 0) return _html_bootstrap_panel('Please log in to proceed', 'Please log in above to proceed.', 'panel panel-warning');
 	    	//if($GLOBALS['user']->uid == 0) return _html_bootstrap_panel('Registration Access Denied', 'Please log in to proceed.<br /><a class="btn btn-primary btn-sm unregistrable" href="/user/login?destination='.$dest['destination'].'">Go To Login page</a>', 'panel panel-warning');
+				if((module_exists('bcm_sppstudent') || module_exists('bcm_tbcstudent')) && $bundleMachineName == 't_core'){
+					if(in_array('student spp', $user->roles)){
+						return _html_bootstrap_panel('Registration Access Denied', '<br />Core Music Tutoring is not offered to Summer Performance Program. Please choose from any of our <a href="/technology-training/finder">Technology Training</a>.', 'panel panel-warning');
+					}elseif(in_array('student tbc', $user->roles)){
+						return _html_bootstrap_panel('Registration Access Denied', '<br />Core Music Tutoring is not offered to The Boston Conservatory students. Please choose from any of our <a href="/technology-training/finder">Technology Training</a>.', 'panel panel-warning');
+					}
+				}
 				return _html_bootstrap_panel('Registration Access Denied', '<br />This registration is closed.', 'panel panel-danger');
 				break;
 			default:
